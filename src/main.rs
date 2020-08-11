@@ -15,22 +15,45 @@ use rand::{
     Rng,
 };
 
+use std::fmt;
+
 fn main() {
-    let mut rng = rand::thread_rng();
+    let target = "hello yehonatan my son!";
 
-    let chromosome_size = 500;
-    let fitness = (chromosome_size as f64 * -0.9) as isize;
-    println!("fitness: {}", fitness);
-
+    let chromosome_size = target.len();
     let general_population_size = 1000;
-    let mut population = vec![Chromosome::new(chromosome_size); general_population_size];
+    let breeders_pairs = 10;
+    let mutation_factor = 0.1;
+    let fitness_factor = 1.0;
+
+    let fitness = (chromosome_size as f64 * -fitness_factor) as isize;
+    println!("fitness: {}", fitness);
+    let mut rng = rand::thread_rng();
+    let mut population = vec![];
+    for _ in 0..general_population_size {
+        population.push(Chromosome::from("_______________________"));
+    }
     let mut alltimes_best_score = 0;
 
-    for genration in 0..10000 {
+    for generation in 0.. {
         // Selection
-        population.sort_by_key(|x| x.score());
-        let breeders_pairs = 2;
+        population.sort_by_key(|x| x.score(target));
         let breeders: Vec<_> = population.iter().take(breeders_pairs * 2).collect();
+
+        let scores: Vec<_>= population.iter().map(|x| x.score(target)).collect();
+        let avg_score = scores.iter().sum::<isize>() / population.len() as isize;
+        let best_score = scores.iter().min().unwrap().to_owned();
+        if best_score < alltimes_best_score || generation % 20 == 0 {
+            let best = breeders.iter().find(|x| x.score(target) == best_score).unwrap();
+            println!("=============================================================================");
+            println!("best: {}, generation: {} ....... avg_score: {} ....... best_score: {}", best, generation, avg_score, best_score);
+            println!("=============================================================================");
+            for i in &breeders {
+                println!("{}", i);
+            }
+
+            alltimes_best_score = best_score;
+        }
 
         let crossover_from = rng.gen_range(0, chromosome_size);
         let crossover_to = rng.gen_range(crossover_from, chromosome_size);
@@ -45,24 +68,16 @@ fn main() {
             .chain(girls.into_iter())
             .collect();
 
-        children.iter_mut().for_each(|x| x.mutate());
+        children.iter_mut().for_each(|x| x.mutate(mutation_factor));
 
         // Survival
         let weakest = general_population_size - breeders_pairs * 2;
         let _: Vec<_>= population.drain(weakest..).collect();
         population.append(&mut children);
 
-        let scores: Vec<_>= population.iter().map(|x| x.score()).collect();
-        let avg_score = scores.iter().sum::<isize>() / population.len() as isize;
-        let best_score = scores.iter().min().unwrap().to_owned();
-        if best_score < alltimes_best_score {
-            println!("generation: {} ....... avg_score: {} ....... best_score: {}", genration, avg_score, best_score);
-            alltimes_best_score = best_score;
-        }
-
-        let qualified: Vec<_> = population.iter().filter(|x| x.score() < fitness).collect();
+        let qualified: Vec<_> = population.iter().filter(|x| x.score(target) < fitness).collect();
         if qualified.len() > 0 {
-            println!("DONE after {} genrations", genration);
+            println!("DONE after {} genrations", generation);
             println!("Qualified population: {:?}", qualified);
             break;
         }
@@ -72,12 +87,9 @@ fn main() {
 
 fn breed(papa: &Chromosome, mama: &Chromosome, crossover: (usize, usize)) -> (Chromosome, Chromosome) {
     // crossover
-    // println!("mama {:?}", mama);
-    // println!("papa {:?}", papa);
     let (from, to) = crossover;
-    let (boy, girl): (Vec<Gene>, Vec<Gene>) = papa.genes.iter()
+    let mixed_genes: (Vec<Gene>, Vec<Gene>) = papa.genes.iter()
         .zip(mama.genes.iter())
-        // .inspect(|x| println!("about to breed: {:?}", x))
         .enumerate()
         .map(|(i, (a, b))| {
             if i >= from && i <= to {
@@ -86,34 +98,31 @@ fn breed(papa: &Chromosome, mama: &Chromosome, crossover: (usize, usize)) -> (Ch
                 (a, b)
             }
         })
-        // .inspect(|x| println!("mazal tov! {:?}", x))
         .unzip();
 
-    (Chromosome{genes: boy}, Chromosome{genes: girl})
+    let boy = Chromosome{genes: mixed_genes.0};
+    let girl = Chromosome{genes: mixed_genes.1};
+    println!("mama+papa: {} + {} => {} + {}", mama, papa, boy, girl);
+    (boy, girl)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum Gene {
-    Zero,
-    One,
-}
+struct Gene(char);
 
 impl Gene {
-    fn random<R: Rng + ?Sized>(rng: &mut R) -> Gene {
-        let uniform = Uniform::new_inclusive(0, 1);
-        match uniform.sample(rng) {
-            0 => Gene::Zero,
-            _ => Gene::One,
-        }
+    fn new(ch: char) -> Self {
+        Gene(ch)
     }
 
-    fn mutate<R: Rng + ?Sized>(&mut self, rng: &mut R) {
-        let bernoulli = Bernoulli::new(0.1).unwrap();
+    fn random<R: Rng + ?Sized>(rng: &mut R) -> Gene {
+        let ch = rng.sample_iter(SourceCode).next().unwrap();
+        Gene(ch)
+    }
+
+    fn mutate<R: Rng + ?Sized>(&mut self, rng: &mut R, p: f64) {
+        let bernoulli = Bernoulli::new(p).unwrap();
         if bernoulli.sample(rng) {
-            *self = match self {
-                Gene::Zero => Gene::One,
-                Gene::One => Gene::Zero,
-            };
+            *self = Gene::random(rng);
         }
     }
 }
@@ -124,9 +133,9 @@ struct Chromosome {
 }
 
 impl Chromosome {
-    fn new(len: usize) -> Self {
+    fn new(genes: Vec<Gene>) -> Self {
         Chromosome {
-            genes: vec![Gene::Zero; len],
+            genes,
         }
     }
 
@@ -139,22 +148,48 @@ impl Chromosome {
         Chromosome { genes }
     }
 
-    fn score(&self) -> isize {
-        let sum: isize = self
-            .genes
+    fn score<T: Into<Chromosome>>(&self, target: T) -> isize {
+        let sum: isize = self.genes 
             .iter()
-            .map(|x| match x {
-                Gene::Zero => 0,
-                Gene::One => 1,
-            })
+            .zip(target.into().genes.iter())
+            .map(|(a, b)| if a == b { 1 } else { 0 })
             .sum();
 
         sum * -1
     }
 
-    fn mutate(&mut self) {
+    fn mutate(&mut self, p: f64) {
         let mut rng = rand::thread_rng();
-        self.genes.iter_mut().choose(&mut rng).unwrap().mutate(&mut rng);
+        self.genes.iter_mut().choose(&mut rng).unwrap().mutate(&mut rng, p);
+    }
+}
+
+impl From<&str> for Chromosome {
+    fn from(txt: &str) -> Chromosome {
+        Chromosome {
+            genes: txt.chars().map(|x| Gene(x)).collect()
+        }
+    }
+}
+
+impl fmt::Display for Chromosome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.genes.iter().map(|x| x.0).collect::<String>())
+    }
+}
+
+struct SourceCode;
+
+impl Distribution<char> for SourceCode {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> char {
+        const GEN_SRCCODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                abcdefghijklmnopqrstuvwxyz\
+                0123456789\
+                +-*/%^!&|<>@_.,;:#$?(){}[] ";
+        let range = GEN_SRCCODE_CHARSET.len();
+        let range = Uniform::new(0, range);
+        let i = rng.sample_iter(range).next().unwrap();
+        return GEN_SRCCODE_CHARSET[i as usize] as char;
     }
 }
 
@@ -164,19 +199,16 @@ mod tests {
 
     #[test] 
     fn mutate_chromosome() {
-        let mut c9s = Chromosome::new(100);
-        assert_eq!(c9s.score(), 0);
-        c9s.mutate();
-        println!("mutation: {:?}", c9s);
-        assert_ne!(c9s.score(), 0);
+        let mut c9s1 = Chromosome::from("____________________");
+        let c9s2 = c9s1.clone();
+        c9s1.mutate(1.0);
+        println!("original: {}, mutation: {}", c9s1, c9s2);
+        assert_ne!(c9s1, c9s2);
     }
 
     #[test]
     fn chromosomes_are_eq_by_value() {
-        let chromosome_size = 5;
-        let mut c9s = Chromosome::new(chromosome_size);
-        c9s.genes = vec![Gene::Zero; chromosome_size];
-        assert_eq!(Chromosome::new(chromosome_size), c9s);
+        assert_eq!(Chromosome::from("x"), Chromosome::from("x"));
     }
 
     #[test]
@@ -193,27 +225,18 @@ mod tests {
 
     #[test]
     fn sorted_chromosomes() {
-        let chromosome_size = 5;
-        let mut chromosomes = vec![];
+        let mut chromosomes: Vec<Chromosome> = vec![];
 
-        let mut c9s = Chromosome::new(chromosome_size);
-        c9s.genes = vec![Gene::Zero, Gene::Zero, Gene::Zero, Gene::Zero, Gene::Zero];
-        chromosomes.push(c9s);
-
-        let mut c9s = Chromosome::new(chromosome_size);
-        c9s.genes = vec![Gene::One, Gene::One, Gene::One, Gene::One, Gene::One];
-        chromosomes.push(c9s);
-
-        let mut c9s = Chromosome::new(chromosome_size);
-        c9s.genes = vec![Gene::Zero, Gene::Zero, Gene::Zero, Gene::Zero, Gene::Zero];
-        chromosomes.push(c9s);
+        chromosomes.push("hxxxx".into());
+        chromosomes.push("hellx".into());
+        chromosomes.push("hexxx".into());
 
         // Selection
         println!("before: {:#?}", chromosomes);
-        chromosomes.sort_by_key(|x| x.score());
+        chromosomes.sort_by_key(|x| x.score("hello"));
         println!("after: {:#?}", chromosomes);
 
-        assert_eq!(chromosomes[0].score(), -5);
-        assert_eq!(chromosomes[2].score(), 0);
+        assert_eq!(chromosomes[0].score("hello"), -5);
+        assert_eq!(chromosomes[2].score("hello"), 0);
     }
 }
