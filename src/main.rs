@@ -18,38 +18,61 @@ use rand::{
 use std::fmt;
 
 fn main() {
-    let target = "hello yehonatan my son!";
+    let target = "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod\
+        tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,\
+        quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo\
+        consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse\
+        cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non\
+        proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
 
     let chromosome_size = target.len();
-    let general_population_size = 1000;
-    let breeders_pairs = 10;
-    let mutation_factor = 0.1;
+    let general_population_size = 4;
+    let breeders_pairs = 1;
+    let mutation_factor = 0.3;
     let fitness_factor = 1.0;
 
     let fitness = (chromosome_size as f64 * -fitness_factor) as isize;
     println!("fitness: {}", fitness);
+    
     let mut rng = rand::thread_rng();
+
     let mut population = vec![];
+    let init_string: String = vec!['_'].into_iter().cycle().take(target.len()).collect();
+    
     for _ in 0..general_population_size {
-        population.push(Chromosome::from("_______________________"));
+        population.push(Ranked {
+            inner: Chromosome::from(init_string.as_str()),
+            score: 0,
+        });
     }
+
     let mut alltimes_best_score = 0;
 
-    for generation in 0.. {
+    'cycle_of_life: for generation in 0.. {
         // Selection
-        population.sort_by_key(|x| x.score(target));
+        population.sort_by(|a, b| a.score.cmp(&b.score));
         let breeders: Vec<_> = population.iter().take(breeders_pairs * 2).collect();
 
-        let scores: Vec<_>= population.iter().map(|x| x.score(target)).collect();
+        // println!("=============================================================================");
+        // for r in &breeders {
+        //     println!("breeders: {} {}", r.score, r.inner);
+        // }
+
+        let scores: Vec<_>= population.iter().map(|x| x.score).collect();
         let avg_score = scores.iter().sum::<isize>() / population.len() as isize;
         let best_score = scores.iter().min().unwrap().to_owned();
-        if best_score < alltimes_best_score || generation % 20 == 0 {
-            let best = breeders.iter().find(|x| x.score(target) == best_score).unwrap();
+        if best_score < alltimes_best_score {
+            let best = breeders.iter().find(|x| x.score == best_score).unwrap();
             println!("=============================================================================");
-            println!("best: {}, generation: {} ....... avg_score: {} ....... best_score: {}", best, generation, avg_score, best_score);
+            println!("best: {}, generation: {} ....... avg_score: {} ....... best_score: {}", best.inner, generation, avg_score, best_score);
             println!("=============================================================================");
-            for i in &breeders {
-                println!("{}", i);
+            // for r in &breeders {
+            //     println!("breeders: {} {}", r.score, r.inner);
+            // }
+
+            if best_score <= fitness {
+                println!("DONE after {} genrations", generation);
+                break 'cycle_of_life;
             }
 
             alltimes_best_score = best_score;
@@ -60,27 +83,34 @@ fn main() {
         let crossover = (crossover_from, crossover_to);
         let (boys, girls): (Vec<_>, Vec<_>) = breeders
             .chunks_exact(2)
-            .map(|x| breed(&x[0], &x[1], crossover))
+            .map(|x| breed(&x[0].inner, &x[1].inner, crossover))
             .unzip();
 
         // Breeding
-        let mut children: Vec<_> = boys.into_iter()
+        let offsprings: Vec<_> = boys.into_iter()
             .chain(girls.into_iter())
+            .map(|mut x| {
+                x.mutate(mutation_factor);
+                x
+            })
             .collect();
 
-        children.iter_mut().for_each(|x| x.mutate(mutation_factor));
+        let mut children: Vec<Ranked<Chromosome>> = offsprings
+            .into_iter()
+            .map(|x| Ranked {
+                score: x.score(target),
+                inner: x,
+            })
+            .collect();
+
+        // for r in &children {
+        //     println!("children: {} {}", r.score, r.inner);
+        // }
 
         // Survival
         let weakest = general_population_size - breeders_pairs * 2;
         let _: Vec<_>= population.drain(weakest..).collect();
         population.append(&mut children);
-
-        let qualified: Vec<_> = population.iter().filter(|x| x.score(target) < fitness).collect();
-        if qualified.len() > 0 {
-            println!("DONE after {} genrations", generation);
-            println!("Qualified population: {:?}", qualified);
-            break;
-        }
     }
 
 }
@@ -102,7 +132,7 @@ fn breed(papa: &Chromosome, mama: &Chromosome, crossover: (usize, usize)) -> (Ch
 
     let boy = Chromosome{genes: mixed_genes.0};
     let girl = Chromosome{genes: mixed_genes.1};
-    println!("mama+papa: {} + {} => {} + {}", mama, papa, boy, girl);
+    // println!("mama+papa: {} + {} => {} + {}", mama, papa, boy, girl);
     (boy, girl)
 }
 
@@ -193,6 +223,11 @@ impl Distribution<char> for SourceCode {
     }
 }
 
+struct Ranked<T> {
+    pub inner: T,
+    pub score: isize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +264,7 @@ mod tests {
 
         chromosomes.push("hxxxx".into());
         chromosomes.push("hellx".into());
+        chromosomes.push("helxx".into());
         chromosomes.push("hexxx".into());
 
         // Selection
@@ -236,7 +272,9 @@ mod tests {
         chromosomes.sort_by_key(|x| x.score("hello"));
         println!("after: {:#?}", chromosomes);
 
-        assert_eq!(chromosomes[0].score("hello"), -5);
-        assert_eq!(chromosomes[2].score("hello"), 0);
+        assert_eq!(chromosomes[0], Chromosome::from("hellx"));
+        assert_eq!(chromosomes[1], Chromosome::from("helxx"));
+        assert_eq!(chromosomes[2], Chromosome::from("hexxx"));
+        assert_eq!(chromosomes[3], Chromosome::from("hxxxx"));
     }
 }
